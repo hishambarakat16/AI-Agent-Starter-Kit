@@ -202,87 +202,41 @@ app/db/vector/
 
 ## The MCP → LangChain Bridge
 
-This is the framework's core value — it's what makes your Python functions callable by the agent without any manual LangChain tool code.
-
-```
-Your function (data_server.py)
-     │  @mcp.tool() registers it with FastMCP
-     ▼
-FastMCP exposes it as HTTP POST /mcp
-     │
-     ▼
-MCPServerClient  (app/integrations/mcp/core.py)
-     │  calls session.call_tool(name, args) over HTTP
-     ▼
-MCPHelper._json_schema_to_pydantic()  (app/integrations/mcp/mcp_helper.py)
-     │  converts MCP inputSchema (JSON Schema) → Pydantic model automatically
-     ▼
-MCPToolRegistry.get_tools()  (app/integrations/mcp/tool_registry.py)
-     │  wraps everything in a LangChain StructuredTool
-     ▼
-model.bind_tools(tools)  (app/graphs/fintech_graph.py)
-     │  GPT-4o sees the tool and knows when/how to call it
-     ▼
-Agent calls tool → result injected as ToolMessage → agent continues
-```
-
-**What this means for you:** write a normal Python function with type annotations and a docstring. The rest is handled. No LangChain tool boilerplate, no schema writing.
-
-### Adding a new tool
-
-1. Add a function to `MCP/server/data_server.py` (or `vector_server.py`):
+Write a Python function with type annotations and a docstring — the framework converts it into a LangChain tool the agent can call automatically. No manual schema writing, no boilerplate.
 
 ```python
 @mcp.tool()
 def getOrderStatus(order_id: str) -> dict:
     """Get the current status and estimated delivery date for an order."""
-    # your DB/API call
     return {"order_id": order_id, "status": "shipped", "eta": "2024-03-15"}
 ```
 
-2. Restart the `mcp-data` container — the agent discovers it automatically.
+The conversion chain: `@mcp.tool()` → FastMCP HTTP endpoint → JSON Schema → Pydantic model → LangChain `StructuredTool` → `model.bind_tools()` → agent.
 
-### Adding a new MCP server
+For the full MCP setup — adding tools, adding servers, how the bridge works internally — see **[docs/mcp.md](docs/mcp.md)**.
 
-1. Create `MCP/server/my_server.py` (copy `data_server.py` as template)
-2. Add a Dockerfile in `MCP/docker/`
-3. Add the service to `docker/docker-compose.yml`
-4. Register it in `app/integrations/mcp/core.py`:
+---
 
-```python
-def load_mcp_servers():
-    return [
-        MCPServerConfig(name="data",   url=os.getenv("MCP_DATA_URL", ...)),
-        MCPServerConfig(name="vector", url=os.getenv("MCP_VECTOR_URL", ...)),
-        MCPServerConfig(name="orders", url=os.getenv("MCP_ORDERS_URL", ...)),  # ← new
-    ]
-```
+## Chat Interface
+
+Each conversation lives in a session scoped to the logged-in user. Messages are stored in memory (fast, no DB round-trips — sessions are lost on restart). The agent loop is capped at 6 tool rounds per message, and long conversations are automatically summarized to stay within the context window.
+
+For the full details — session model, request flow, context management, streaming SSE format, and feedback — see **[docs/chat.md](docs/chat.md)**.
 
 ---
 
 ## Semantic Cache
 
-The agent caches responses to knowledge-base questions in Redis. The next time someone asks a semantically similar question, it returns the cached answer instantly — no LLM call, no tool calls.
+The agent caches responses to knowledge-base questions in Redis. Semantically similar questions hit the cache — no LLM call, no tool calls. Personalized queries ("what's my balance?") always bypass the cache.
 
 ```
-"What is your return policy?"   → cache MISS → agent answers → stored
-"How do I return an item?"      → cache HIT  → same answer returned immediately
-"What's the refund process?"    → cache HIT  → same answer returned immediately
+"What is your return policy?"   → MISS → agent answers → stored
+"How do I return an item?"      → HIT  → same answer returned immediately
 ```
 
-**How similar is "similar enough"?** Controlled by `SEMANTIC_CACHE_DISTANCE_THRESHOLD` in `.env`:
-- `0.05` (default) — strict, only very close paraphrases match
-- `0.15` — looser, more hits but risk of serving a slightly wrong answer
+**Note:** Redis Stack is required (not plain Redis) — the cache needs the `RedisSearch` module for vector similarity. The docker-compose already uses `redis/redis-stack-server:latest`.
 
-**When it doesn't cache:**
-The LLM classifier marks queries as `PERSONALIZED` (asking about the user's own data) — those always go to the agent. You never want to cache "what's my balance?" and serve it to another user.
-
-**Redis Stack is required** — not plain Redis. The semantic cache needs the `RedisSearch` module for vector index creation. Plain `redis:alpine` boots fine but crashes at runtime when the cache initializes. The docker-compose uses `redis/redis-stack-server:latest` which includes it.
-
-**Clear the cache:**
-```bash
-docker exec agent-redis redis-cli KEYS "qa_cache:*" | xargs docker exec -i agent-redis redis-cli DEL
-```
+For threshold tuning, clearing the cache, and how the POLICY/PERSONALIZED classifier works — see **[docs/cache.md](docs/cache.md)**.
 
 ---
 
@@ -341,79 +295,26 @@ docker exec agent-redis redis-cli KEYS "qa_cache:*" | xargs docker exec -i agent
 
 ## Authentication
 
-The system uses JWT (Bearer token) auth. Here's the full flow:
+JWT Bearer token auth. Login returns a token; every subsequent request passes it in the `Authorization` header. Users are stored in `core.app_users` (bcrypt-hashed passwords, `is_active` flag). The init scripts create the table — you add users yourself before first run.
 
-```
-POST /auth/login
-     │  email + password (form body)
-     ▼
-app/routers/authentication.py
-     │  looks up user by email in core.app_users table
-     │  verifies bcrypt(password) == stored password_hash
-     ▼
-app/auth/token.py
-     │  creates JWT signed with JWT_SECRET_KEY
-     │  payload: { "sub": email, "exp": now + JWT_EXPIRES_MIN }
-     ▼
-{ "access_token": "eyJ...", "token_type": "bearer" }
-     │
-     ▼  all subsequent requests:
-Authorization: Bearer eyJ...
-     │
-app/auth/oauth2.py  →  token.verify_token()  →  returns TokenData(email)
-```
+For the full flow, user table schema, three ways to add users, and JWT config variables — see **[docs/auth.md](docs/auth.md)**.
 
-### User table
+---
 
-Users are stored in `core.app_users` (created by `docker/initdb/01_schema.sql`):
+## Observability (Langfuse)
 
-```sql
-CREATE TABLE core.app_users (
-  user_id       uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  email         citext UNIQUE NOT NULL,
-  password_hash text NOT NULL,       -- bcrypt hash, never plaintext
-  is_active     boolean DEFAULT true,
-  created_at    timestamptz DEFAULT now()
-);
-```
-
-### Adding users
-
-The init scripts don't seed any users — you add them yourself. Use the backfill script as a starting point:
+Every user message generates a Langfuse trace: which tools were called, what the LLM said at each step, token counts, latency, and cost — all linked to the session. MCP tool calls appear as child spans on the same trace, so you can see the full agent→tool→agent chain in one view.
 
 ```bash
-python scripts/backfill_app_users.py
+# .env
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
+LANGFUSE_HOST=https://cloud.langfuse.com
 ```
 
-Or insert directly:
+Langfuse is optional — the agent works without it, traces are silently dropped if keys are missing. But without it you're guessing when something is slow or wrong.
 
-```python
-import bcrypt, psycopg2
-
-password_hash = bcrypt.hashpw(b"yourpassword", bcrypt.gensalt()).decode()
-
-conn = psycopg2.connect(...)
-conn.execute(
-    "INSERT INTO core.app_users (email, password_hash) VALUES (%s, %s)",
-    ("user@example.com", password_hash)
-)
-conn.commit()
-```
-
-### Configuring JWT
-
-Three env vars control JWT behaviour:
-
-| Variable | Default | Description |
-|---|---|---|
-| `JWT_SECRET_KEY` | required | Signing key — minimum 32 chars, keep secret |
-| `JWT_ALGORITHM` | `HS256` | Signing algorithm |
-| `JWT_EXPIRES_MIN` | `60` | Token lifetime in minutes |
-
-Generate a strong key:
-```bash
-python -c "import secrets; print(secrets.token_hex(32))"
-```
+For setup, what gets traced, how the MCP trace join works, and session feedback — see **[docs/langfuse.md](docs/langfuse.md)**.
 
 ---
 
@@ -464,7 +365,11 @@ command: uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4 ...
 
 ## Learn More
 
-- `ARCHITECTURE.md` — full technical explanation of the MCP→LangChain→agent chain, tool design guidelines, SQL vs vector query patterns
-- `app/integrations/mcp/mcp_helper.py` — how JSON Schema becomes a Pydantic model
-- `app/graphs/fintech_graph.py` — the full LangGraph state machine with comments
-- `app/db/vector/queries.py` — dense, sparse, and hybrid SQL patterns explained
+| Guide | What's in it |
+|---|---|
+| [docs/mcp.md](docs/mcp.md) | MCP tool definition, the full MCP→LangChain bridge, adding servers |
+| [docs/chat.md](docs/chat.md) | Session model, request flow, context summarization, streaming |
+| [docs/auth.md](docs/auth.md) | JWT flow, user table, adding users, token config |
+| [docs/cache.md](docs/cache.md) | POLICY/PERSONALIZED classifier, threshold tuning, Redis Stack |
+| [docs/langfuse.md](docs/langfuse.md) | Trace setup, MCP span joining, session feedback, cost dashboard |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Deep dive: all four layers, SQL/vector patterns, agent state machine |
