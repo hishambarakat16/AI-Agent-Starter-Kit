@@ -21,32 +21,21 @@ Clone it, connect your database, and have a working agent in one `docker-compose
 
 ## How It Works
 
-```
-User message
-     │
-     ▼
-FastAPI  →  LangGraph agent
-                 │
-                 ├── safety_guard        block prompt injection attacks
-                 ├── semantic_cache      return cached answer if seen before
-                 │
-                 ├── agent (GPT-4o)      decide which tools to call
-                 │        │
-                 │        ▼
-                 └── tools node
-                          │
-              ┌───────────┴───────────┐
-              ▼                       ▼
-     mcp-data (port 8051)    mcp-vector (port 8052)
-     your SQL / API           your vector DB
-              │                       │
-              └───────────┬───────────┘
-                          ▼
-                  result → agent → final answer
-                                        │
-                                        ▼
-                               cache if knowledge-base query
-```
+![Architecture](Architecture.png)
+
+The flow from top to bottom:
+
+1. **Customer (React UI)** — sends a message via streaming to the FastAPI gateway
+2. **FastAPI API Gateway** — handles JWT auth, rate limiting, and timeouts
+3. **Chat Orchestrator (Service Layer)** — manages session ownership and binds a Trace ID for observability
+4. **LangGraph Customer Agent** — runs two guards before the agent loop:
+   - **Guardrails (PII)** — blocks identity probing and prompt injection
+   - **Cache Check (Redis)** — returns a cached answer instantly if the question was seen before
+   - **Agent Loop** — GPT-4o calls tools until it has enough information to answer (tool rounds capped)
+5. **Tool Calls (MCP)** — the agent calls whichever servers it needs:
+   - **MCP SQL Tools (:8051)** — accounts, balances, structured data from PostgreSQL
+   - **MCP Policy/RAG Tools (:8052)** — document retrieval via vector search on PostgreSQL embeddings
+6. **Response + Tracing** — answer streams back to the UI; Langfuse captures every token, tool call, latency, and cost
 
 The key insight: **your tools run as separate HTTP services** (MCP servers). The agent calls them by name — it doesn't know or care what database they're talking to. Swap the implementation without touching the agent.
 
