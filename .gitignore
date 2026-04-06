@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.venv/
+venv/
+env/
+fintech_env/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Logs
+logs/
+*.log
+
+# Data / models
+chroma/
+*.csv
+*.parquet
+*.npy
+*.pt
+*.ckpt
+
+# IDE
+.DS_Store
+.vscode/
+.idea/
+
+# Docker volumes
+pgdata/
+redis_data/

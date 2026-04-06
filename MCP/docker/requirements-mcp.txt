@@ -1,0 +1,23 @@
+mcp
+python-dotenv
+pydantic
+psycopg2-binary
+
+langchain
+langchain-openai
+openai
+
+chromadb
+fastapi 
+uvicorn[standard]
+
+# Policy-related packages
+langchain_chroma
+langchain_huggingface
+
+langfuse
+
+# tracing
+opentelemetry-api 
+opentelemetry-sdk
+opentelemetry-instrumentation-asgi

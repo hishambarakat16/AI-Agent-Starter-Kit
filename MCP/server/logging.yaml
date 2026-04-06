@@ -1,0 +1,54 @@
+version: 1
+disable_existing_loggers: false
+
+formatters:
+  simple:
+    style: "{"
+    format: "{asctime} {levelname} {name} {message}"
+
+handlers:
+  console:
+    class: logging.StreamHandler
+    level: INFO
+    formatter: simple
+    stream: ext://sys.stdout
+
+  all_file:
+    class: logging.FileHandler
+    level: DEBUG
+    formatter: simple
+    filename: "{LOG_DIR}/all.log"
+    mode: a
+
+  warnings_file:
+    class: logging.FileHandler
+    level: WARNING
+    formatter: simple
+    filename: "{LOG_DIR}/warnings.log"
+    mode: a
+
+  errors_file:
+    class: logging.FileHandler
+    level: ERROR
+    formatter: simple
+    filename: "{LOG_DIR}/errors.log"
+    mode: a
+
+  fintech_namespace_file:
+    class: logging.FileHandler
+    level: DEBUG
+    formatter: simple
+    filename: "{LOG_DIR}/namespace.fintech_api.log"
+    mode: a
+
+loggers:
+  # Root gets the “everything” fan-out
+  root:
+    level: DEBUG
+    handlers: [console, all_file, warnings_file, errors_file]
+
+  # Namespace-specific file (and still propagates to root, so it also lands in all/warn/error)
+  fintech_api:
+    level: DEBUG
+    handlers: [fintech_namespace_file]
+    propagate: true

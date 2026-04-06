@@ -1,0 +1,112 @@
+name: langgraph-agent-starter
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: ../.env
+        required: true
+    environment:
+      - PYTHONPATH=/app
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - MCP_SQL_URL=http://mcp-sql:8051/mcp
+      - MCP_POLICY_URL=http://mcp-policy:8052/mcp
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+    command: uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1 --timeout-keep-alive 65 --no-access-log
+
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: agent-postgres
+    env_file:
+      - path: ../.env
+        required: true
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+
+  redis:
+    image: redis/redis-stack-server:latest
+    container_name: agent-redis
+    ports:
+      - "6378:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    environment:
+      - REDIS_ARGS=--save 10 1 --appendonly yes --loglevel warning --maxmemory 512mb --maxmemory-policy allkeys-lru
+
+
+  mcp-sql:
+    build:
+      context: ..
+      dockerfile: MCP/docker/Dockerfile.sql
+    ports:
+      - "8051:8051"
+    env_file:
+      - path: ../.env
+        required: true
+    environment:
+      - PYTHONPATH=/workspace
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8051
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    command: uv run uvicorn MCP.server.sql_server:app --host 0.0.0.0 --port 8051 --no-access-log --log-level warning
+
+
+  mcp-policy:
+    build:
+      context: ..
+      dockerfile: MCP/docker/Dockerfile.policy
+    ports:
+      - "8052:8052"
+    env_file:
+      - path: ../.env
+        required: true
+    environment:
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8052
+      - PYTHONPATH=/workspace
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    command: uv run uvicorn MCP.server.policy_server:app --host 0.0.0.0 --port 8052 --no-access-log --log-level warning
+
+
+volumes:
+  pgdata:
+  redis_data:

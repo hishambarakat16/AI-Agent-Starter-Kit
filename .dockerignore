@@ -1,0 +1,86 @@
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pdb
+*.egg-info/
+*.egg
+*.log
+*.drawio
+*.Identifier
+fintech_env/
+fastapi-chat-tester
+# Virtual Environments
+venv/
+.env/
+.venv/
+env/
+ENV/
+
+# --- ML / Data ---
+# Model checkpoints, weights, artifacts
+src/models/
+models/
+checkpoints/
+outputs/
+runs/
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.bin
+*.h5
+
+*.pdf
+Document Writing Style.json
+
+# Large temporary datasets
+data/
+datasets/
+references/
+*.csv
+*.tsv
+*.parquet
+*.npz
+*.npy
+*.txt
+!requirements.txt
+
+# --- Jupyter ---
+.ipynb_checkpoints/
+*.ipynb_convert/
+
+# --- Build / Packaging ---
+build/
+dist/
+pip-wheel-metadata/
+*.whl
+
+# --- Cache ---
+.cache/
+tmp/
+temp/
+*.tmp
+
+# --- Environment / Secrets ---
+.env
+*.env
+.env.*
+secrets/
+credentials.json
+
+# --- IDE / Editors ---
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+!requirements_app.txt
+!requirements_all.txt
+!MCP/docker/requirements-mcp.txt
+!reranker/requirements-reranker.txt
