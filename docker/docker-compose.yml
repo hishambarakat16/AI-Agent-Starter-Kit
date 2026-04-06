@@ -16,12 +16,18 @@ services:
       - POSTGRES_PORT=5432
       - MCP_DATA_URL=http://mcp-data:8051/mcp
       - MCP_VECTOR_URL=http://mcp-vector:8052/mcp
+      # Inside the Docker network Redis is at redis:6379.
+      # This overrides whatever REDIS_URL is set to in .env.
       - REDIS_URL=redis://redis:6379
     depends_on:
-      - postgres
-      - redis
-      - mcp-data
-      - mcp-vector
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy   # wait for Redis vector module to be ready
+      mcp-data:
+        condition: service_started
+      mcp-vector:
+        condition: service_started
     restart: unless-stopped
     command: uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1 --timeout-keep-alive 65 --no-access-log
 
@@ -46,9 +52,16 @@ services:
 
 
   redis:
+    # IMPORTANT: must be redis-stack-server, NOT plain redis.
+    # The semantic cache uses the RedisSearch module (vector similarity search)
+    # which is only included in Redis Stack. Plain redis:alpine will start fine
+    # but crash at runtime when the cache tries to create a vector index.
     image: redis/redis-stack-server:latest
     container_name: agent-redis
     ports:
+      # Host port 6378 → container port 6379.
+      # Using 6378 on the host avoids conflicts if you have a local Redis running.
+      # For local dev outside Docker, set REDIS_URL=redis://localhost:6378 in .env.
       - "6378:6379"
     volumes:
       - redis_data:/data
@@ -59,7 +72,17 @@ services:
       timeout: 5s
       retries: 5
     environment:
-      - REDIS_ARGS=--save 10 1 --appendonly yes --loglevel warning --maxmemory 512mb --maxmemory-policy allkeys-lru
+      - REDIS_ARGS=
+          --save 10 1
+          --appendonly yes
+          --loglevel warning
+          --maxmemory 512mb
+          --maxmemory-policy allkeys-lru
+      # --save 10 1        persist to disk every 10 min if ≥1 key changed
+      # --appendonly yes   write-ahead log for durability
+      # --maxmemory 512mb  cap memory usage (tune for your host)
+      # allkeys-lru        evict least-recently-used keys when memory is full
+      #                    safe for a cache — losing old entries is acceptable
 
 
   mcp-data:
