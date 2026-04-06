@@ -33,6 +33,13 @@ from MCP.server.langfuse_trace_middleware import LangfuseMCPTraceJoinMiddleware
 from MCP.server.logging_config import configure_logging
 from .mcp_trace_context import get_trace_context
 
+# ── Uncomment once you've implemented app/db/sql/ for your schema ──
+# from app.db.sql.service import run_data_tool
+# from app.db.sql.schemas import (
+#     GetRecordRequest, ListRecordsRequest,
+#     ListRecordsDatedRequest, GetSummaryRequest,
+# )
+
 configure_logging(
     config_path=Path(__file__).resolve().parent / "logging.yaml",
     logs_dir=Path("logs/mcp"),

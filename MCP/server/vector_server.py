@@ -39,6 +39,11 @@ from MCP.server.langfuse_trace_middleware import LangfuseMCPTraceJoinMiddleware
 from MCP.server.logging_config import configure_logging
 from .mcp_trace_context import get_trace_context
 
+from app.db.vector.retriever import DocumentRetriever
+from app.db.vector.models import DocumentFilters, RerankConfig
+
+_retriever = DocumentRetriever(rerank_cfg=RerankConfig(enabled=False))
+
 configure_logging(
     config_path=Path(__file__).resolve().parent / "logging.yaml",
     logs_dir=Path("logs/mcp"),
@@ -91,7 +96,7 @@ def rewriteQuery(question: str, mode: str = "basic") -> dict:
         trace_context=trace_context, input=input_echo,
     ) as span:
         result = _rewrite_query(question, mode)
-        span.update(output=result)
+        span.update(output={"queries": len(result.get("queries_for_retrieval", []))})
         return result
 
 
@@ -124,13 +129,16 @@ def retrieveChunks(query: str, top_k: int = 8, filter_tag: Optional[str] = None)
         as_type="span", name="mcp:retrieveChunks",
         trace_context=trace_context, input=input_echo,
     ) as span:
-        hits = _vector_search(query, top_k, filter_tag)
+        filters = DocumentFilters(
+            lang=filter_tag if filter_tag in ("en", "ar") else None,
+            tag=filter_tag if filter_tag not in ("en", "ar", None) else None,
+        )
+        raw_hits = _retriever.search(query=query, top_k=top_k, filters=filters)
+        hits = _retriever.hits_to_dicts(raw_hits)
 
-        # Compute signals so agent can decide whether reranking is worthwhile
-        scores = sorted([h.get("score", 0.0) for h in hits], reverse=True)
+        scores = sorted([h.get("hybrid_score", 0.0) for h in hits], reverse=True)
         top_score = float(scores[0]) if scores else 0.0
-        second_score = float(scores[1]) if len(scores) > 1 else 0.0
-        margin = top_score - second_score
+        margin = top_score - (float(scores[1]) if len(scores) > 1 else 0.0)
 
         result = {
             "query": query,
@@ -139,7 +147,6 @@ def retrieveChunks(query: str, top_k: int = 8, filter_tag: Optional[str] = None)
             "signals": {
                 "top_score": top_score,
                 "margin": margin,
-                # Agent uses this hint to decide whether to call rerankChunks
                 "suggest_rerank": top_score < 0.78 or margin < 0.08,
             },
         }
