@@ -34,3 +34,6 @@ chroma/
 # Docker volumes
 pgdata/
 redis_data/
+
+# Starter sub-project (has its own git repo)
+starter/

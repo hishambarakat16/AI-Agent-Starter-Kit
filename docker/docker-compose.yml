@@ -14,12 +14,14 @@ services:
       - PYTHONPATH=/app
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
-      - MCP_SQL_URL=http://mcp-sql:8051/mcp
-      - MCP_POLICY_URL=http://mcp-policy:8052/mcp
+      - MCP_DATA_URL=http://mcp-data:8051/mcp
+      - MCP_VECTOR_URL=http://mcp-vector:8052/mcp
       - REDIS_URL=redis://redis:6379
     depends_on:
       - postgres
       - redis
+      - mcp-data
+      - mcp-vector
     restart: unless-stopped
     command: uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1 --timeout-keep-alive 65 --no-access-log
 
@@ -60,7 +62,7 @@ services:
       - REDIS_ARGS=--save 10 1 --appendonly yes --loglevel warning --maxmemory 512mb --maxmemory-policy allkeys-lru
 
 
-  mcp-sql:
+  mcp-data:
     build:
       context: ..
       dockerfile: MCP/docker/Dockerfile.sql
@@ -79,10 +81,11 @@ services:
       postgres:
         condition: service_healthy
     restart: unless-stopped
-    command: uv run uvicorn MCP.server.sql_server:app --host 0.0.0.0 --port 8051 --no-access-log --log-level warning
+    # Points to data_server.py — replace with your data source server
+    command: uv run uvicorn MCP.server.data_server:app --host 0.0.0.0 --port 8051 --no-access-log --log-level warning
 
 
-  mcp-policy:
+  mcp-vector:
     build:
       context: ..
       dockerfile: MCP/docker/Dockerfile.policy
@@ -104,7 +107,8 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
-    command: uv run uvicorn MCP.server.policy_server:app --host 0.0.0.0 --port 8052 --no-access-log --log-level warning
+    # Points to vector_server.py — replace with your vector DB server
+    command: uv run uvicorn MCP.server.vector_server:app --host 0.0.0.0 --port 8052 --no-access-log --log-level warning
 
 
 volumes:
