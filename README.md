@@ -339,6 +339,84 @@ docker exec agent-redis redis-cli KEYS "qa_cache:*" | xargs docker exec -i agent
 
 ---
 
+## Authentication
+
+The system uses JWT (Bearer token) auth. Here's the full flow:
+
+```
+POST /auth/login
+     │  email + password (form body)
+     ▼
+app/routers/authentication.py
+     │  looks up user by email in core.app_users table
+     │  verifies bcrypt(password) == stored password_hash
+     ▼
+app/auth/token.py
+     │  creates JWT signed with JWT_SECRET_KEY
+     │  payload: { "sub": email, "exp": now + JWT_EXPIRES_MIN }
+     ▼
+{ "access_token": "eyJ...", "token_type": "bearer" }
+     │
+     ▼  all subsequent requests:
+Authorization: Bearer eyJ...
+     │
+app/auth/oauth2.py  →  token.verify_token()  →  returns TokenData(email)
+```
+
+### User table
+
+Users are stored in `core.app_users` (created by `docker/initdb/01_schema.sql`):
+
+```sql
+CREATE TABLE core.app_users (
+  user_id       uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  email         citext UNIQUE NOT NULL,
+  password_hash text NOT NULL,       -- bcrypt hash, never plaintext
+  is_active     boolean DEFAULT true,
+  created_at    timestamptz DEFAULT now()
+);
+```
+
+### Adding users
+
+The init scripts don't seed any users — you add them yourself. Use the backfill script as a starting point:
+
+```bash
+python scripts/backfill_app_users.py
+```
+
+Or insert directly:
+
+```python
+import bcrypt, psycopg2
+
+password_hash = bcrypt.hashpw(b"yourpassword", bcrypt.gensalt()).decode()
+
+conn = psycopg2.connect(...)
+conn.execute(
+    "INSERT INTO core.app_users (email, password_hash) VALUES (%s, %s)",
+    ("user@example.com", password_hash)
+)
+conn.commit()
+```
+
+### Configuring JWT
+
+Three env vars control JWT behaviour:
+
+| Variable | Default | Description |
+|---|---|---|
+| `JWT_SECRET_KEY` | required | Signing key — minimum 32 chars, keep secret |
+| `JWT_ALGORITHM` | `HS256` | Signing algorithm |
+| `JWT_EXPIRES_MIN` | `60` | Token lifetime in minutes |
+
+Generate a strong key:
+```bash
+python -c "import secrets; print(secrets.token_hex(32))"
+```
+
+---
+
 ## API Reference
 
 All endpoints except `/health` and `/auth/login` require `Authorization: Bearer <token>`.

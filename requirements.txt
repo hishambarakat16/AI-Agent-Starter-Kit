@@ -1,0 +1,36 @@
+# ─── Web framework ───────────────────────────────────────────────
+fastapi
+uvicorn[standard]
+python-multipart          # required for OAuth2 form parsing (login endpoint)
+slowapi                   # rate limiting middleware
+
+# ─── Agent & LLM ─────────────────────────────────────────────────
+langchain-core
+langchain-openai
+langgraph
+langchain
+
+# ─── MCP ─────────────────────────────────────────────────────────
+mcp                       # MCP client + FastMCP server
+
+# ─── Database ────────────────────────────────────────────────────
+psycopg2-binary           # PostgreSQL driver
+pgvector                  # pgvector Python client (if using ORM-style queries)
+
+# ─── Vector search & embeddings ──────────────────────────────────
+langchain-redis>=0.1.0    # Redis semantic cache
+redis>=5.0.0
+redisvl>=0.3.0            # Redis vector index management
+
+# ─── Auth ────────────────────────────────────────────────────────
+python-jose[cryptography] # JWT encode/decode
+passlib==1.7.4            # password hashing interface
+bcrypt==4.3.0             # bcrypt backend for passlib
+
+# ─── Observability ───────────────────────────────────────────────
+langfuse                  # tracing, evals, cost tracking
+
+# ─── Utilities ───────────────────────────────────────────────────
+python-dotenv             # load .env file
+httpx                     # async HTTP client (MCP calls, reranker)
+pydantic                  # data validation (used throughout)
