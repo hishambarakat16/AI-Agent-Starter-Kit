@@ -367,6 +367,7 @@ command: uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4 ...
 
 | Guide | What's in it |
 |---|---|
+| [docs/graph.md](docs/graph.md) | LangGraph state machine, guard customization, PII masking, multi-agent patterns |
 | [docs/mcp.md](docs/mcp.md) | MCP tool definition, the full MCP→LangChain bridge, adding servers |
 | [docs/chat.md](docs/chat.md) | Session model, request flow, context summarization, streaming |
 | [docs/auth.md](docs/auth.md) | JWT flow, user table, adding users, token config |
